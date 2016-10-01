@@ -1,0 +1,23 @@
+--- /home/tiger/OpenLab/MyResearh/Wormhole/OriginalAODV/aodv-ns3.20/aodv-routing-protocol.h	2014-06-17 10:30:29.000000000 +0530
++++ src/aodv/model/aodv-routing-protocol.h	2016-10-01 19:04:15.175514297 +0530
+@@ -89,6 +89,12 @@
+   bool GetHelloEnable () const { return EnableHello; }
+   void SetBroadcastEnable (bool f) { EnableBroadcast = f; }
+   bool GetBroadcastEnable () const { return EnableBroadcast; }
++  void SetWrmAttackEnable (bool f) { EnableWrmAttack =f; } 
++  bool GetWrmAttackEnable () const { return EnableWrmAttack; }
++  Ipv4Address FirstP2PEndOfWormTunnel;
++  Ipv4Address SecondP2PEndOfWormTunnel;
++  Ipv4Address FirstWifiEndOfWormTunnel;
++  Ipv4Address SecondWifiEndOfWormTunnel;
+   //\}
+ 
+  /**
+@@ -136,6 +142,7 @@
+   bool GratuitousReply;              ///< Indicates whether a gratuitous RREP should be unicast to the node originated route discovery.
+   bool EnableHello;                  ///< Indicates whether a hello messages enable
+   bool EnableBroadcast;              ///< Indicates whether a a broadcast data packets forwarding enable
++  bool EnableWrmAttack;		         ///< Indicates whether a WormHole Attack enable 
+   //\}
+ 
+   /// IP protocol

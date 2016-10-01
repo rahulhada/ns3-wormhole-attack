@@ -1,0 +1,137 @@
+--- /home/tiger/OpenLab/MyResearh/Wormhole/OriginalAODV/aodv-ns3.20/aodv-routing-protocol.cc	2016-10-01 17:27:21.081798251 +0530
++++ src/aodv/model/aodv-routing-protocol.cc	2016-10-01 17:38:54.010348427 +0530
+@@ -252,6 +252,31 @@
+                    StringValue ("ns3::UniformRandomVariable"),
+                    MakePointerAccessor (&RoutingProtocol::m_uniformRandomVariable),
+                    MakePointerChecker<UniformRandomVariable> ())
++   .AddAttribute ("EnableWrmAttack","Indicates whether a Wormhole Attack enable.",
++                  BooleanValue(false),
++                  MakeBooleanAccessor (&RoutingProtocol::SetWrmAttackEnable,
++                                       &RoutingProtocol::GetWrmAttackEnable),
++                  MakeBooleanChecker())
++    .AddAttribute("FirstP2PEndOfWormTunnel",
++                  "Indicates the first P2P end of the wormhole tunnel",
++                  Ipv4AddressValue("10.1.2.1"),
++                  MakeIpv4AddressAccessor(&RoutingProtocol::FirstP2PEndOfWormTunnel),
++                  MakeIpv4AddressChecker())
++    .AddAttribute("SecondP2PEndOfWormTunnel",
++                  "Incodates the second P2P end of the wormhole Tunnel",
++                  Ipv4AddressValue("10.1.2.2"),
++                  MakeIpv4AddressAccessor(&RoutingProtocol::SecondP2PEndOfWormTunnel),
++                  MakeIpv4AddressChecker())
++    .AddAttribute("FirstWifiEndOfWormTunnel",
++                  "Indicates the wifi interface of the first end of the wormhole tunnel",
++                  Ipv4AddressValue("10.0.1.37"),
++                  MakeIpv4AddressAccessor(&RoutingProtocol::FirstWifiEndOfWormTunnel),
++                  MakeIpv4AddressChecker())
++    .AddAttribute("SecondWifiEndOfWormTunnel",
++                  "Indicates the wifi interface of the first end of the wormhole tunnel",
++                  Ipv4AddressValue("10.0.1.38"),
++                  MakeIpv4AddressAccessor(&RoutingProtocol::SecondWifiEndOfWormTunnel),
++                  MakeIpv4AddressChecker())
+   ;
+   return tid;
+ }
+@@ -497,6 +522,11 @@
+       if (lcb.IsNull () == false)
+         {
+           NS_LOG_LOGIC ("Unicast local delivery to " << dst);
++          if(EnableWrmAttack)
++		  {
++			  if(dst==FirstP2PEndOfWormTunnel || dst==SecondP2PEndOfWormTunnel)
++				  iif=1;
++		  }
+           lcb (p, header, iif);
+         }
+       else
+@@ -939,7 +969,27 @@
+   Ipv4Address sender = inetSourceAddr.GetIpv4 ();
+   Ipv4Address receiver = m_socketAddresses[socket].GetLocal ();
+   NS_LOG_DEBUG ("AODV node " << this << " received a AODV packet from " << sender << " to " << receiver);
+-
++/*
++  when malicious node receives a aodv control packet with  sender's IP address as first end of p2p 
++  interface wormhole tunnel and receiver's address as second end of wifi interface wormhole 
++  tunnel, then set extplicitly set receiver's IP address as second end p2p interface of wormhole tunnel
++*/
++  if(EnableWrmAttack)
++   {
++     if(sender==FirstP2PEndOfWormTunnel && receiver==SecondWifiEndOfWormTunnel)
++	  {
++		receiver=SecondP2PEndOfWormTunnel;
++	  }
++/*
++   when malicious wormhole node receives a aodv control packet with  sender's IP address as first 
++   end of wifi interface wormhole tunnel and receiver's address as second end of p2p interface wormhole 
++   tunnel, then set extplicitly set receiver's IP address as first end p2p interface of wormhole tunnel
++*/
++     if(sender==SecondP2PEndOfWormTunnel && receiver==FirstWifiEndOfWormTunnel)
++	 {
++		receiver=FirstP2PEndOfWormTunnel;
++	 }
++  }
+   UpdateRouteToNeighbor (sender, receiver);
+   TypeHeader tHeader (AODVTYPE_RREQ);
+   packet->RemoveHeader (tHeader);
+@@ -1071,7 +1121,27 @@
+   RoutingTableEntry toOrigin;
+   if (!m_routingTable.LookupRoute (origin, toOrigin))
+     {
+-      Ptr<NetDevice> dev = m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (receiver));
++      Ptr<NetDevice> dev;
++/* when first wormhole node received packet [source] is p2p interface then getnetdevice of second p2p 
++   interface and set the receiver to be second p2p ip address
++   AS THE POINTTOPOINT NETDEVICE NOT NOTIFY ACTIVE DUE TO WHICH NOT CONSIDERED IN THE REVERSE ROUTE 
++*/ 
++  if(EnableWrmAttack && (src==FirstP2PEndOfWormTunnel))
++   {
++	dev = m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (SecondP2PEndOfWormTunnel));
++	receiver=SecondP2PEndOfWormTunnel;
++   }
++/* when second wormhole node received packet [source] is p2p interface then getnetdevice of first p2p 
++   interface and set the receiver to be first p2p ip address
++   AS THE POINTTOPOINT NETDEVICE NOT NOTIFY ACTIVE DUE TO WHICH NOT CONSIDERED IN THE REVERSE ROUTE
++*/
++  else if(EnableWrmAttack && (src==SecondP2PEndOfWormTunnel))
++   {
++	dev = m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (FirstP2PEndOfWormTunnel));
++	receiver=FirstP2PEndOfWormTunnel;
++   }
++  else
++      dev= m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (receiver));
+       RoutingTableEntry newEntry (/*device=*/ dev, /*dst=*/ origin, /*validSeno=*/ true, /*seqNo=*/ rreqHeader.GetOriginSeqno (),
+                                               /*iface=*/ m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0), /*hops=*/ hop,
+                                               /*nextHop*/ src, /*timeLife=*/ Time ((2 * NetTraversalTime - 2 * hop * NodeTraversalTime)));
+@@ -1442,8 +1512,32 @@
+       toNeighbor.SetSeqNo (rrepHeader.GetDstSeqno ());
+       toNeighbor.SetValidSeqNo (true);
+       toNeighbor.SetFlag (VALID);
++      Ipv4Address wrmDst=rrepHeader.GetDst();
++/* ADDED LINES FOR THE FALSE ENTRY IN THE ROUTING TABLE SUCCESSFULLY ADDED
++   if second wormhole node received RREP packet form the first wormhole node
++   then we have set the output device to the wifi interface netdevice and also set interface of the 
++   second p2p interface ip address
++*/
++   if(EnableWrmAttack && wrmDst==FirstP2PEndOfWormTunnel)
++    {
++	 toNeighbor.SetOutputDevice (m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (SecondP2PEndOfWormTunnel)));
++	 toNeighbor.SetInterface (m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (SecondP2PEndOfWormTunnel), 0));
++    }
++/* ADDED LINES FOR THE FALSE ENTRY IN THE ROUTING TABLE SUCCESSFULLY ADDED
++   if fist wormhole node received RREP packet form the second wormhole node
++   then we have set the output device to the wifi interface netdevice and also set interface of the 
++   first p2p interface ip address
++*/
++   else if(EnableWrmAttack && wrmDst==SecondP2PEndOfWormTunnel)
++    {
++	toNeighbor.SetOutputDevice (m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (FirstP2PEndOfWormTunnel)));
++	toNeighbor.SetInterface (m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (FirstP2PEndOfWormTunnel), 0));
++    }
++   else
++    {
+       toNeighbor.SetOutputDevice (m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (receiver)));
+       toNeighbor.SetInterface (m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0));
++    }
+       m_routingTable.Update (toNeighbor);
+     }
+   if (EnableHello)
